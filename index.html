@@ -359,7 +359,7 @@ function render(){
     <header><span class="sync"></span><h1>${esc(title())}</h1><button class="classchip" onclick="pickClass()">${isCoord()?'🧭 רכז/ת':esc(cfg.myClass)} ▾</button></header>
     <div id="banner" class="banner hidden"></div>
     <main id="main">${screen()}</main>
-    <nav>${TABS.map(([k,ic,l]) => `<button class="${k==='count'?'mid ':''}${(ui.tab===k||(k==='more'&&['lodge','buses','settings','bus'].includes(ui.tab)))?'on':''}" onclick="go('${k}')"><span class="ic">${ic}</span>${tabLabel(k,l)}</button>`).join('')}</nav>`;
+    <nav>${TABS.map(([k,ic,l]) => `<button class="${k==='count'?'mid ':''}${(ui.tab===k||(k==='more'&&['lodge','buses','settings','bus','contacts'].includes(ui.tab)))?'on':''}" onclick="go('${k}')"><span class="ic">${ic}</span>${tabLabel(k,l)}</button>`).join('')}</nav>`;
   setSync();
   if (ui._keep){ window.scrollTo(0, scrollKeep); ui._keep = false; }
 }
@@ -367,7 +367,7 @@ function softRender(){ ui._keep = true; if (document.getElementById('veil')) { c
 function title(){
   if (isCoord() && ui.tab === 'class') return 'השכבה';
   if (isCoord() && ui.tab === 'count' && !ui.countId) return 'מצב ספירה';
-  return {now:'מסע ישראלי', sched:'לו"ז המסע', count:'ספירה שמית', class:'הכיתה שלי', more:'עוד', lodge:'לינה', buses:'אוטובוסים', bus:'אוטובוס', settings:'הגדרות'}[ui.tab] || 'מסע ישראלי';
+  return {now:'מסע ישראלי', sched:'לו"ז המסע', count:'ספירה שמית', class:'הכיתה שלי', more:'עוד', lodge:'לינה', buses:'אוטובוסים', bus:'אוטובוס', settings:'הגדרות', contacts:'טלפונים'}[ui.tab] || 'מסע ישראלי';
 }
 function go(t){ ui.tab = t; ui.q = ''; window.scrollTo(0,0); render(); if (t === 'count') { if (ui.countId) pollCount(); else loadAll(true).then(pollCoord); } }
 function screen(){
@@ -381,6 +381,7 @@ function screen(){
     case 'buses': return scrBuses();
     case 'bus': return scrBus();
     case 'settings': return scrSettings();
+    case 'contacts': return scrContacts();
   }
   return '';
 }
@@ -591,6 +592,7 @@ function scrClass(){
   const cb = classBuses(cls);
   const q = ui.q.trim();
   let h = `<div class="card"><div class="row"><div class="grow"><h2 style="margin:0">${esc(cls)}</h2><div class="muted">${list.length} תלמידים יוצאים · ${cb.map(x=>'אוטובוס '+x.bus).join(', ')||'אין שיבוץ אוטובוס'}</div></div></div>
+    ${info['מחנך']?`<div class="li"><div class="grow"><div class="muted">מחנך/ת</div><div class="nm">${esc(info['מחנך'])}</div></div>${info['טלפון_מחנך']?`<a class="call" href="tel:${esc(info['טלפון_מחנך'])}">📞 חיוג</a>`:''}</div>`:''}
     ${info['מדריך']?`<div class="li"><div class="grow"><div class="muted">מדריך</div><div class="nm">${esc(info['מדריך'])}</div></div>${info['טלפון_מדריך']?`<a class="call" href="tel:${esc(info['טלפון_מדריך'])}">📞 חיוג</a>`:''}</div>`:''}</div>`;
   if (isSplit(cls)){
     const asg = {}; cb.forEach(x => asg[x.bus] = 0); let un = 0;
@@ -679,8 +681,28 @@ function assignBus(sid, bus){
   softRender();
 }
 
+function parseContacts(t){
+  return String(t||'').split(/\n+/).map(l => l.trim()).filter(Boolean).map(l => {
+    const parts = l.split('·').map(x => x.trim()).filter(Boolean);
+    const phone = parts.length > 1 && /^[\d\-\s+]{7,}$/.test(parts[parts.length-1]) ? parts.pop() : '';
+    return {name: parts[0] || '', role: parts.slice(1).join(' · '), phone};
+  });
+}
+function contactRows(list){
+  return list.map(c => `<div class="li"><div class="grow"><div class="nm">${esc(c.name)}</div>${c.role?`<div class="muted">${esc(c.role)}</div>`:''}</div>${c.phone?`<a class="call" href="tel:${esc(c.phone.replace(/[^\d+]/g,''))}">📞 ${esc(c.phone)}</a>`:'<span class="muted">אין מספר</span>'}</div>`).join('');
+}
+function generalContacts(){ const b = D().buses.find(x => x['אנשי_קשר_כלליים']); return parseContacts(b ? b['אנשי_קשר_כלליים'] : ''); }
+function scrContacts(){
+  const mine = myBuses();
+  const buses = D().buses.slice().sort((a,b) => (mine.includes(String(b['מספר_אוטובוס']))?1:0) - (mine.includes(String(a['מספר_אוטובוס']))?1:0) || Number(a['מספר_אוטובוס'])-Number(b['מספר_אוטובוס']));
+  const g = generalContacts();
+  return `<h2>טלפונים חשובים</h2>
+    ${g.length?`<h3>כללי</h3><div class="card">${contactRows(g)}</div>`:''}
+    ${buses.map(b => { const L = parseContacts(b['אנשי_קשר']); if (!L.length) return ''; const n = String(b['מספר_אוטובוס']); return `<h3>אוטובוס ${esc(n)}${mine.includes(n)&&!isCoord()?' ★':''} <span class="muted" style="font-weight:400">· ${esc(b['כיתות']||'')}</span></h3><div class="card">${contactRows(L)}</div>`; }).join('')}`;
+}
 function scrMore(){
-  return `<button class="opt" onclick="go('lodge')">⛺ לינה – אוהלים וחדרים</button>
+  return `<button class="opt" onclick="go('contacts')">📞 טלפונים חשובים</button>
+    <button class="opt" onclick="go('lodge')">⛺ לינה – אוהלים וחדרים</button>
     <button class="opt" onclick="go('buses')">🚌 אוטובוסים</button>
     <button class="opt" onclick="go('settings')">⚙️ הגדרות</button>`;
 }
@@ -740,7 +762,9 @@ function scrBus(){
   const n = ui.busN; const list = busStudents(n);
   const by = {}; list.forEach(s => (by[s['כיתה']] = by[s['כיתה']] || []).push(s));
   const un = D().students.filter(s => !isOut(s) && !busOf(s) && classBuses(s['כיתה']).some(x => x.bus === n));
+  const bc = parseContacts((D().buses.find(x => String(x['מספר_אוטובוס'])===n)||{})['אנשי_קשר']);
   return `<h2>אוטובוס ${esc(n)} · ${list.length} תלמידים</h2>
+    ${bc.length?`<details class="card" style="padding:10px 14px"><summary style="font-weight:800;cursor:pointer">📞 אנשי קשר באוטובוס (${bc.length})</summary>${contactRows(bc)}</details>`:''}
     <button class="btn" onclick="ui.cbus='${n}';ui.countId=null;go('count')">✓ התחל ספירה באוטובוס ${esc(n)}</button><div style="height:6px"></div>
     ${un.length?`<div class="card" style="background:var(--warnbg)">⚠️ ${un.length} תלמידים מכיתה מפוצלת עוד לא שובצו</div>`:''}
     ${Object.keys(by).sort(classOrder).map(cls => `<div class="grp"><span>${esc(cls)}</span><span>${by[cls].length}</span></div><div class="card">${by[cls].sort(sortName).map(s => `<div class="li"><div class="grow nm">${esc(fullName(s))}</div></div>`).join('')}</div>`).join('') || '<div class="card muted">אין עדיין תלמידים משובצים</div>'}
