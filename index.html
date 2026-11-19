@@ -256,7 +256,10 @@ function busOf(s){
 const classStudents = cls => D().students.filter(s => s['כיתה'] === cls && !isOut(s)).sort(sortName);
 const busStudents = bus => D().students.filter(s => !isOut(s) && busOf(s) === String(bus));
 const classOrder = (a,b) => a.localeCompare(b,'he',{numeric:true});
+const COORD = 'רכז/ת שכבה';
+const isCoord = () => cfg.myClass === COORD;
 function myBuses(){
+  if (isCoord()) return D().buses.map(b => String(b['מספר_אוטובוס']));
   const cb = classBuses(cfg.myClass).map(x => x.bus);
   if (cfg.myBus && !cb.includes(cfg.myBus)) cb.unshift(cfg.myBus);
   return cb;
@@ -347,23 +350,26 @@ function sheet(html){ closeSheet(); const v = document.createElement('div'); v.c
 function closeSheet(){ document.getElementById('veil')?.remove(); }
 
 const TABS = [['now','☀️','עכשיו'],['sched','🗓️','לו"ז'],['count','✓','ספירה'],['class','👥','הכיתה שלי'],['more','☰','עוד']];
+const tabLabel = (k,l) => k === 'class' && isCoord() ? 'השכבה' : k === 'count' && isCoord() ? 'מצב ספירה' : l;
 
 function render(){
   if (!cfg.myClass || !cfg.name || !data) return renderLogin();
   const scrollKeep = ui._keep ? window.scrollY : 0;
   $app.innerHTML = `
-    <header><span class="sync"></span><h1>${esc(title())}</h1><button class="classchip" onclick="pickClass()">${esc(cfg.myClass)} ▾</button></header>
+    <header><span class="sync"></span><h1>${esc(title())}</h1><button class="classchip" onclick="pickClass()">${isCoord()?'🧭 רכז/ת':esc(cfg.myClass)} ▾</button></header>
     <div id="banner" class="banner hidden"></div>
     <main id="main">${screen()}</main>
-    <nav>${TABS.map(([k,ic,l]) => `<button class="${k==='count'?'mid ':''}${(ui.tab===k||(k==='more'&&['lodge','buses','settings','bus'].includes(ui.tab)))?'on':''}" onclick="go('${k}')"><span class="ic">${ic}</span>${l}</button>`).join('')}</nav>`;
+    <nav>${TABS.map(([k,ic,l]) => `<button class="${k==='count'?'mid ':''}${(ui.tab===k||(k==='more'&&['lodge','buses','settings','bus'].includes(ui.tab)))?'on':''}" onclick="go('${k}')"><span class="ic">${ic}</span>${tabLabel(k,l)}</button>`).join('')}</nav>`;
   setSync();
   if (ui._keep){ window.scrollTo(0, scrollKeep); ui._keep = false; }
 }
 function softRender(){ ui._keep = true; if (document.getElementById('veil')) { const m = document.getElementById('main'); if (m) m.innerHTML = screen(); setSync(); ui._keep=false; return; } render(); }
 function title(){
+  if (isCoord() && ui.tab === 'class') return 'השכבה';
+  if (isCoord() && ui.tab === 'count' && !ui.countId) return 'מצב ספירה';
   return {now:'מסע ישראלי', sched:'לו"ז המסע', count:'ספירה שמית', class:'הכיתה שלי', more:'עוד', lodge:'לינה', buses:'אוטובוסים', bus:'אוטובוס', settings:'הגדרות'}[ui.tab] || 'מסע ישראלי';
 }
-function go(t){ ui.tab = t; ui.q = ''; window.scrollTo(0,0); render(); if (t === 'count') { if (ui.countId) pollCount(); else loadAll(true); } }
+function go(t){ ui.tab = t; ui.q = ''; window.scrollTo(0,0); render(); if (t === 'count') { if (ui.countId) pollCount(); else loadAll(true).then(pollCoord); } }
 function screen(){
   switch(ui.tab){
     case 'now': return scrNow();
@@ -418,7 +424,7 @@ function scrSched(){
 
 function scrCount(){
   const c = counts[ui.countId];
-  if (!c || (c.status === 'done' && !c._show)) return scrCountStart();
+  if (!c || (c.status === 'done' && !c._show)) return isCoord() ? scrCoord() : scrCountStart();
   const st = countStats(c);
   const done = st.expected > 0 && st.present === st.expected;
   const byClass = {};
@@ -530,6 +536,7 @@ function doFinish(){
 }
 
 function scrClass(){
+  if (isCoord()) return scrGrade();
   const cls = cfg.myClass;
   const info = D().classes.find(c => c['כיתה'] === cls) || {};
   const list = classStudents(cls);
@@ -550,6 +557,64 @@ function scrClass(){
   if (outs.length) h += `<div class="muted">לא יוצאים: ${outs.map(s => esc(fullName(s))).join(', ')}</div>`;
   return h;
 }
+function scrGrade(){
+  const q = ui.q.trim();
+  const all = D().students.filter(s => !isOut(s));
+  const cls = [...new Set(all.map(s => s['כיתה']))].sort(classOrder);
+  if (!ui.gcls) ui.gcls = 'all';
+  let h = `<div class="card"><h2 style="margin:0">כל השכבה</h2><div class="muted">${all.length} תלמידים יוצאים · ${cls.length} כיתות</div>
+    <div class="chips">${cls.map(c => { const n = all.filter(s => s['כיתה']===c).length; const un = isSplit(c) ? all.filter(s => s['כיתה']===c && !busOf(s)).length : 0; return `<span class="pill ${un?'warn':''}">${esc(c)}: ${n}${un?` · ${un} בלי אוטובוס`:''}</span>`; }).join('')}</div></div>`;
+  h += `<div class="seg"><button class="${ui.gcls==='all'?'on':''}" onclick="ui.gcls='all';render()">הכל</button>${cls.map(c => `<button class="${ui.gcls===c?'on':''}" onclick="ui.gcls='${esc(c)}';render()">${esc(c)}</button>`).join('')}</div>`;
+  h += `<input class="search" placeholder="חיפוש שם בכל השכבה…" value="${esc(ui.q)}" oninput="ui.q=this.value;softRenderKeepFocus(this)">`;
+  let list = all.filter(s => (ui.gcls === 'all' || s['כיתה'] === ui.gcls) && (!q || fullName(s).includes(q)));
+  const by = {}; list.forEach(s => (by[s['כיתה']] = by[s['כיתה']] || []).push(s));
+  h += Object.keys(by).sort(classOrder).map(c => `<div class="grp"><span>${esc(c)}</span><span>${by[c].length}</span></div><div class="card">${by[c].sort(sortName).map(s => `<div class="li"><div class="grow"><div class="nm">${esc(fullName(s))}</div><div class="muted">${busOf(s)?'אוטובוס '+busOf(s):'<span style="color:var(--warn)">לא שובץ לאוטובוס</span>'}${s['הערה']?' · '+esc(s['הערה']):''}</div></div>${s['טלפון_תלמיד']?`<a class="call" href="tel:${esc(s['טלפון_תלמיד'])}">📞</a>`:''}${s['טלפון_הורה']?`<a class="call" href="tel:${esc(s['טלפון_הורה'])}">📞 הורה</a>`:''}</div>`).join('')}</div>`).join('') || '<div class="card muted">לא נמצאו תלמידים</div>';
+  return h;
+}
+function latestCount(bus){
+  const arr = Object.values(counts).filter(c => String(c.bus) === String(bus) && !String(c.id).startsWith('test'));
+  return arr[arr.length-1] || null;
+}
+function scrCoord(){
+  const buses = D().buses.map(b => String(b['מספר_אוטובוס'])).sort((a,b)=>a-b);
+  let tp = 0, te = 0, cards = '';
+  buses.forEach(n => {
+    const c = latestCount(n); const b = D().buses.find(x => String(x['מספר_אוטובוס'])===n) || {};
+    if (!c){ cards += `<div class="card"><div class="row"><div class="num" style="width:44px;height:44px;border-radius:12px;background:var(--sand2);display:grid;place-items:center;font-weight:900">${n}</div><div class="grow"><b>אוטובוס ${n}</b><div class="muted">${esc(b['אחראי_אוטובוס']||'')} · עוד לא נספר</div></div><span class="pill">–</span></div></div>`; return; }
+    const st = countStats(c); const open = c.status !== 'done';
+    const pres = open ? st.present : Number(c.result.present)||0, exp = open ? st.expected : Number(c.result.expected)||0;
+    const miss = open ? st.missing : String(c.result.missing||'').split(', ').filter(Boolean);
+    tp += pres; te += exp;
+    const ok = pres === exp && exp > 0;
+    const cls = ok ? 'ok' : open ? 'warn' : 'bad';
+    cards += `<div class="card" style="border-right:6px solid var(--${ok?'ok':open?'warn':'bad'})"><div class="row"><div style="width:44px;height:44px;border-radius:12px;background:var(--sky);color:#fff;display:grid;place-items:center;font-weight:900;font-size:20px">${n}</div>
+      <div class="grow"><b>${esc(c.name||'ספירה')}</b><div class="muted">${open?'⏳ בספירה עכשיו':'✓ הסתיימה'}${c.by?' · '+esc(c.by):''}${(open?c.opened:c.result.at)?' · '+esc(open?c.opened:c.result.at):''}</div></div>
+      <div style="text-align:left"><div style="font-size:26px;font-weight:900">${pres}<span class="muted" style="font-size:16px">/${exp}</span></div><span class="pill ${cls}">${ok?'כולם כאן':`חסרים ${exp-pres}`}</span></div></div>
+      ${miss.length && !ok ? `<div class="muted" style="margin-top:8px;color:var(--bad)">חסרים: ${miss.map(esc).join(', ')}</div>` : ''}
+      ${open?`<button class="btn sec" style="margin-top:10px;padding:10px;font-size:16px" onclick="joinCount('${c.id}')">פתח את הספירה</button>`:''}</div>`;
+  });
+  return `<h2>תמונת מצב – כל האוטובוסים</h2>
+    <div class="counter ${te && tp===te?'done':''}"><div class="row"><div class="grow"><div class="muted" style="font-weight:700">סה"כ בספירות האחרונות</div><div class="big">${tp}<small> / ${te}</small></div></div>
+    <div style="text-align:left">${te && tp===te?'<span class="pill ok" style="font-size:16px">כולם כאן ✓</span>':`<div style="font-size:26px;font-weight:900;color:var(--bad)">${te-tp}</div><div class="muted">חסרים</div>`}</div></div>
+    <div class="bar"><i style="width:${te?Math.round(100*tp/te):0}%"></i></div><div class="muted" style="margin-top:6px">מתעדכן אוטומטית כל כמה שניות</div></div>
+    ${cards}
+    <h3>ספירה בעצמך</h3>${scrCountStart().replace('<h2>ספירה שמית</h2>','')}`;
+}
+async function pollCoord(){
+  if (!isCoord() || ui.tab !== 'count' || ui.countId) return;
+  const ids = D().buses.map(b => latestCount(String(b['מספר_אוטובוס']))).filter(c => c && c.status !== 'done').map(c => c.id);
+  for (const id of ids){
+    try{
+      const res = await apiGet({action:'count', id});
+      if (res.ok){ const c = counts[id]; if (!c) continue;
+        (res.marks||[]).forEach(m => { const sid = m['מזהה_תלמיד'], ts = Number(m['זמן'])||0; const cur = c.marks[sid]; if (!cur || cur.ts < ts) c.marks[sid] = {state:m['מצב'], note:m['הערה'], ts, by:m['סומן_על_ידי']}; });
+        if (res.count && res.count['סטטוס'] === 'הסתיימה'){ c.status = 'done'; c.result = {present:res.count['נמצאים'], expected:res.count['צפויים'], missing:res.count['חסרים'], at:res.count['נסגרה']}; }
+      }
+    }catch(e){ net = 'off'; }
+  }
+  save(); if (ui.tab === 'count' && !ui.countId) softRender();
+}
+setInterval(pollCoord, 8000);
 function assignBus(sid, bus){
   const a = LS.get('assign', {}); a[sid] = bus; LS.set('assign', a);
   const s = D().students.find(x => x.id === sid); if (s) s['אוטובוס'] = bus; LS.set('data', data);
@@ -576,7 +641,7 @@ function scrLodge(){
     }
     return h;
   }
-  h += `<label class="toggle"><input type="checkbox" ${ui.allL?'checked':''} onchange="ui.allL=this.checked;render()"> הצג את כל ה${ui.lodge==='tents'?'אוהלים':'חדרים'} (לא רק ${esc(cfg.myClass)})</label>`;
+  if (!isCoord()) h += `<label class="toggle"><input type="checkbox" ${ui.allL?'checked':''} onchange="ui.allL=this.checked;render()"> הצג את כל ה${ui.lodge==='tents'?'אוהלים':'חדרים'} (לא רק ${esc(cfg.myClass)})</label>`;
   if (ui.lodge === 'tents'){
     const nights = [...new Set(D().tents.map(t => String(t['לילה'])))].sort();
     if (!nights.length) return h + `<div class="card muted">שיבוץ האוהלים עוד לא הוזן.</div>`;
@@ -591,12 +656,12 @@ function scrLodge(){
   }
   return h;
 }
-function hasClass(u){ return String(u['כיתה']||'').split(/[,،]/).map(x=>x.trim()).includes(cfg.myClass); }
+function hasClass(u){ if (isCoord()) return true; return String(u['כיתה']||'').split(/[,،]/).map(x=>x.trim()).includes(cfg.myClass); }
 function nameHTML(n){ const mine = n.includes('(' + cfg.myClass + ')'); return mine ? `<b>${esc(n.replace(' ('+cfg.myClass+')',''))}</b>` : `<span style="color:var(--mute)">${esc(n)}</span>`; }
 function unitsHTML(arr, key, sub){
   if (!arr.length) return `<div class="card muted">אין שיבוץ להצגה</div>`;
   const sorted = arr.slice().sort((a,b)=>String(a[key]).localeCompare(String(b[key]),'he',{numeric:true}));
-  return `<div class="grp"><span>${ui.allL ? 'כל השכבה' : esc(cfg.myClass)}</span><span>${sorted.length}</span></div><div class="card">${sorted.map(u => `<div class="li unit"><div class="n">${esc(u[key])}</div><div class="grow">${sub(u)?`<div class="muted">${esc(sub(u))}</div>`:''}<div>${splitNames(u['תלמידים']).map(nameHTML).join(' · ')}</div></div></div>`).join('')}</div>`;
+  return `<div class="grp"><span>${ui.allL || isCoord() ? 'כל השכבה' : esc(cfg.myClass)}</span><span>${sorted.length}</span></div><div class="card">${sorted.map(u => `<div class="li unit"><div class="n">${esc(u[key])}</div><div class="grow">${sub(u)?`<div class="muted">${esc(sub(u))}</div>`:''}<div>${splitNames(u['תלמידים']).map(nameHTML).join(' · ')}</div></div></div>`).join('')}</div>`;
 }
 function scrBuses(){
   const mine = myBuses();
@@ -636,7 +701,7 @@ function scrSettings(){
     <div class="muted" style="text-align:center">מסע ישראלי · מעיין שחר · 22–26.11.2026</div>`;
 }
 function pickClass(){
-  sheet(`<h3>בחירת כיתה</h3>${D().classes.map(c => `<button class="opt" onclick="cfg.myClass='${esc(c['כיתה'])}';cfg.myBus='';save();closeSheet();render()">${esc(c['כיתה'])}${c['כיתה']===cfg.myClass?' ✓':''}</button>`).join('')}`);
+  sheet(`<h3>בחירת כיתה</h3>${D().classes.map(c => `<button class="opt" onclick="cfg.myClass='${esc(c['כיתה'])}';cfg.myBus='';save();closeSheet();render()">${esc(c['כיתה'])}${c['כיתה']===cfg.myClass?' ✓':''}</button>`).join('')}<button class="opt" onclick="cfg.myClass=COORD;cfg.myBus='';save();closeSheet();render()">🧭 ${COORD}${isCoord()?' ✓':''}</button>`);
 }
 
 /* ---------------- login ---------------- */
@@ -646,7 +711,7 @@ function renderLogin(){
   $app.innerHTML = `<div class="login"><div class="logo">🧭</div><h1>מסע ישראלי</h1><div class="muted" style="text-align:center">מעיין שחר · שכבת י"א · 22–26.11</div>
     ${step===1?`<div style="text-align:center;margin-top:30px" class="muted">טוען נתונים…</div><div id="lErr" class="err" style="text-align:center"></div><div style="height:14px"></div><button class="btn sec" id="lGo">נסה שוב</button>`
     :`<label>השם שלך</label><input id="lName" placeholder="למשל: אסף" value="${esc(cfg.name||'')}">
-      <label>הכיתה שלך</label><select id="lClass"><option value="">בחירה…</option>${D().classes.map(c => `<option>${esc(c['כיתה'])}</option>`).join('')}</select>
+      <label>הכיתה שלך</label><select id="lClass"><option value="">בחירה…</option>${D().classes.map(c => `<option>${esc(c['כיתה'])}</option>`).join('')}<option>${COORD}</option></select>
       <div id="lErr" class="err"></div><div style="height:14px"></div><button class="btn big" id="lGo2">המשך</button>`}</div>`;
   if (step === 1){
     document.getElementById('lGo').onclick = () => { ui._loading = false; renderLogin(); };
