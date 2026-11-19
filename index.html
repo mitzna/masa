@@ -32,7 +32,8 @@ header h1{font-size:18px;margin:0;flex:1;font-weight:700;white-space:nowrap;over
 .classchip{background:rgba(255,255,255,.18);border-radius:999px;padding:5px 12px;font-weight:700;font-size:15px}
 .sync{width:11px;height:11px;border-radius:50%;background:#9be29b;box-shadow:0 0 0 2px rgba(255,255,255,.35)}
 .sync.off{background:#f0b35c}.sync.err{background:#f07a5c}
-.banner{background:var(--warnbg);color:#7a4a0c;padding:8px 14px;font-size:14px;border-bottom:1px solid #f0d6ad}
+.banner{position:fixed;z-index:40;left:12px;right:12px;bottom:calc(var(--nav) + 12px + env(safe-area-inset-bottom));background:var(--warnbg);color:#7a4a0c;padding:8px 14px;font-size:14px;border:1px solid #f0d6ad;border-radius:12px;box-shadow:0 4px 12px rgba(80,60,20,.12);pointer-events:none;text-align:center}
+.sync.pend{background:#f0d35c}
 
 main{padding:14px 14px calc(var(--nav) + 24px + env(safe-area-inset-bottom));max-width:720px;margin:0 auto}
 h2{font-size:21px;margin:6px 0 12px}
@@ -333,12 +334,11 @@ function lastResult(bus){
 /* ---------------- UI shell ---------------- */
 function setSync(){
   const el = document.querySelector('.sync'); if (!el) return;
-  el.className = 'sync' + (net === 'off' ? ' off' : net === 'err' ? ' err' : '');
+  el.className = 'sync' + (net === 'off' ? ' off' : net === 'err' ? ' err' : queue.length ? ' pend' : '');
   const b = document.getElementById('banner');
   if (b){
     const msg = net === 'off' ? `אין חיבור – עובדים מהטלפון${queue.length ? ` · ${queue.length} שינויים ממתינים לשליחה` : ''}` :
-                net === 'err' ? 'קוד הצוות לא תקין – יש להיכנס מחדש בהגדרות' :
-                queue.length ? `שולח ${queue.length} שינויים…` : '';
+                net === 'err' ? 'קוד הצוות לא תקין – יש להיכנס מחדש בהגדרות' : '';
     b.textContent = msg; b.classList.toggle('hidden', !msg);
   }
 }
@@ -582,19 +582,21 @@ function scrLodge(){
     if (!nights.length) return h + `<div class="card muted">שיבוץ האוהלים עוד לא הוזן.</div>`;
     if (!nights.includes(ui.night)) ui.night = nights[0];
     h += `<div class="seg">${nights.map(n => { const t = D().tents.find(x => String(x['לילה'])===n); return `<button class="${n===ui.night?'on':''}" onclick="ui.night='${n}';render()">לילה ${n} · ${esc(t['מקום']||'')}</button>`; }).join('')}</div>`;
-    let ts = D().tents.filter(t => String(t['לילה']) === ui.night && (ui.allL || t['כיתה'] === cfg.myClass));
-    h += unitsHTML(ts, 'מספר_אוהל', t => '');
+    let ts = D().tents.filter(t => String(t['לילה']) === ui.night && (ui.allL || hasClass(t)));
+    h += unitsHTML(ts, 'מספר_אוהל', t => ui.allL ? (t['כיתה']||'') : '');
   } else {
-    let rs = D().rooms.filter(r => ui.allL || r['כיתה'] === cfg.myClass);
+    let rs = D().rooms.filter(r => ui.allL || hasClass(r));
     if (!D().rooms.length) return h + `<div class="card muted">שיבוץ החדרים עוד לא הוזן.</div>`;
     h += `<div class="muted" style="margin-bottom:8px">אגרון ירושלים · לילות 24–25.11</div>` + unitsHTML(rs, 'מספר_חדר', r => r['קומה'] ? 'קומה '+r['קומה'] : '');
   }
   return h;
 }
+function hasClass(u){ return String(u['כיתה']||'').split(/[,،]/).map(x=>x.trim()).includes(cfg.myClass); }
+function nameHTML(n){ const mine = n.includes('(' + cfg.myClass + ')'); return mine ? `<b>${esc(n.replace(' ('+cfg.myClass+')',''))}</b>` : `<span style="color:var(--mute)">${esc(n)}</span>`; }
 function unitsHTML(arr, key, sub){
   if (!arr.length) return `<div class="card muted">אין שיבוץ להצגה</div>`;
-  const by = {}; arr.forEach(u => (by[u['כיתה']||'—'] = by[u['כיתה']||'—'] || []).push(u));
-  return Object.keys(by).sort(classOrder).map(cls => `<div class="grp"><span>${esc(cls)}</span><span>${by[cls].length}</span></div><div class="card">${by[cls].sort((a,b)=>String(a[key]).localeCompare(String(b[key]),'he',{numeric:true})).map(u => `<div class="li unit"><div class="n">${esc(u[key])}</div><div class="grow">${sub(u)?`<div class="muted">${esc(sub(u))}</div>`:''}<div>${splitNames(u['תלמידים']).map(esc).join(' · ')}</div></div></div>`).join('')}</div>`).join('');
+  const sorted = arr.slice().sort((a,b)=>String(a[key]).localeCompare(String(b[key]),'he',{numeric:true}));
+  return `<div class="grp"><span>${ui.allL ? 'כל השכבה' : esc(cfg.myClass)}</span><span>${sorted.length}</span></div><div class="card">${sorted.map(u => `<div class="li unit"><div class="n">${esc(u[key])}</div><div class="grow">${sub(u)?`<div class="muted">${esc(sub(u))}</div>`:''}<div>${splitNames(u['תלמידים']).map(nameHTML).join(' · ')}</div></div></div>`).join('')}</div>`;
 }
 function scrBuses(){
   const mine = myBuses();
