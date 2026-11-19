@@ -411,6 +411,53 @@ function scrNow(){
   }
   return h;
 }
+const TYPES = ['מעגל','מסלול','פעילות','טקס','ארוחה','נסיעה','לינה','לוגיסטיקה','צוות'];
+function editItem(idx, dayN){
+  const it = idx >= 0 ? D().schedule[idx] : null;
+  const base = it || D().schedule.find(x => String(x['יום_מספר']) === String(dayN)) || {};
+  window._edit = {idx, base, key: it ? {'תאריך':it['תאריך'], 'שעה':it['שעה'], 'פעילות':it['פעילות']} : null};
+  sheet(`<h3>${it ? 'עריכת פריט' : 'פריט חדש'} · ${esc(base['יום']||'')} ${esc(base['תאריך']||'')}</h3>
+    <label class="muted">שעה</label><input id="eT" class="search" type="time" value="${esc(it ? it['שעה'] : '')}">
+    <label class="muted">פעילות</label><input id="eA" class="search" value="${esc(it ? it['פעילות'] : '')}">
+    <label class="muted">פרטים</label><textarea id="eD" class="search" rows="3">${esc(it ? it['פרטים'] : '')}</textarea>
+    <label class="muted">סוג</label><select id="eS" class="search">${TYPES.map(t => `<option ${it && it['סוג']===t?'selected':''}>${t}</option>`).join('')}</select>
+    <button class="btn" onclick="saveItem()">שמירה</button>
+    ${it ? `<button class="btn red" style="margin-top:8px" onclick="if(confirm('למחוק את הפריט מהלו&quot;ז?'))deleteItem()">מחיקה</button>` : ''}
+    <button class="btn sec" onclick="closeSheet()">ביטול</button>`);
+}
+function saveItem(){
+  const e = window._edit, b = e.base;
+  const t = document.getElementById('eT').value.trim(), a = document.getElementById('eA').value.trim();
+  if (!t || !a){ toast('צריך שעה ופעילות'); return; }
+  const row = {'יום_מספר':b['יום_מספר'], 'יום':b['יום'], 'תאריך':b['תאריך'], 'נושא_היום':b['נושא_היום'], 'לינה':b['לינה'], 'שעה':t, 'פעילות':a, 'פרטים':document.getElementById('eD').value.trim(), 'סוג':document.getElementById('eS').value};
+  if (e.idx >= 0) Object.assign(D().schedule[e.idx], row); else D().schedule.push(row);
+  LS.set('data', data);
+  enqueue({type:'schedUpsert', key:e.key, row});
+  closeSheet(); render(); toast('הלו"ז עודכן לכולם');
+}
+function deleteItem(){
+  const e = window._edit;
+  D().schedule.splice(e.idx, 1); LS.set('data', data);
+  enqueue({type:'schedDelete', key:e.key});
+  closeSheet(); render(); toast('הפריט נמחק');
+}
+function setOut(sid, out){
+  const s = D().students.find(x => x.id === sid); if (!s) return;
+  const note = out ? (prompt('הערה (לא חובה), למשל: חזר הביתה ביום שני', s['הערה']||'') ?? s['הערה']) : s['הערה'];
+  s['לא_יוצא'] = out ? 'כן' : ''; s['הערה'] = note || '';
+  LS.set('data', data);
+  enqueue({type:'setOut', studentId:sid, out, note: note || ''});
+  closeSheet(); softRender(); toast(out ? 'סומן: לא במסע' : 'הוחזר לרשימה');
+}
+function studentMenu(sid){
+  const s = D().students.find(x => x.id === sid); if (!s) return;
+  const out = isOut(s);
+  sheet(`<h3>${esc(fullName(s))} · ${esc(s['כיתה'])}</h3>
+    <div class="muted" style="margin-bottom:10px">${out ? 'מסומן כלא במסע' : (busOf(s) ? 'אוטובוס ' + busOf(s) : 'לא שובץ לאוטובוס')}${s['הערה'] ? ' · ' + esc(s['הערה']) : ''}</div>
+    ${out ? `<button class="opt" onclick="setOut('${esc(sid)}', false)">↩ החזרה לרשימה (חזר למסע)</button>`
+          : `<button class="opt" onclick="setOut('${esc(sid)}', true)">🏠 חזר הביתה / לא יצא</button>`}
+    <button class="btn sec" onclick="closeSheet()">סגירה</button>`);
+}
 function scrSched(){
   const ds = days(); if (!ds.length) return `<div class="card">הלו"ז עוד לא נטען.</div>`;
   if (ui.day == null) ui.day = (ds.find(x => x.date === today()) || ds[0]).n;
@@ -419,7 +466,8 @@ function scrSched(){
   return `<div class="seg">${ds.map(x => `<button class="${x.n===d.n?'on':''}" onclick="ui.day='${x.n}';render()">${esc(x.day)}<br><span class="muted" style="font-size:12px">${esc(x.date)}</span></button>`).join('')}</div>
     <h2 style="margin-bottom:2px">${esc(d.theme)}</h2><div class="muted" style="margin-bottom:12px">לינה: ${esc(d.lodge)}</div>
     <div class="seg"><button class="${ui.sched==='all'?'on':''}" onclick="ui.sched='all';render()">הכל</button><button class="${ui.sched==='circles'?'on':''}" onclick="ui.sched='circles';render()">⭕ רק מעגלים</button></div>
-    <div class="card">${items.map(it => itemHTML(it)).join('') || '<div class="muted">אין פריטים</div>'}</div>`;
+    <div class="card">${items.map(it => isCoord() ? `<div onclick="editItem(${D().schedule.indexOf(it)})" style="cursor:pointer">${itemHTML(it)}</div>` : itemHTML(it)).join('') || '<div class="muted">אין פריטים</div>'}</div>
+    ${isCoord() ? `<div class="muted" style="margin:-4px 2px 10px">רכז/ת: לחיצה על פריט לעריכה</div><button class="btn sec" onclick="editItem(-1, '${esc(d.n)}')">＋ הוספת פריט ליום ${esc(d.day)}</button>` : ''}`;
 }
 
 function scrCount(){
@@ -568,7 +616,10 @@ function scrGrade(){
   h += `<input class="search" placeholder="חיפוש שם בכל השכבה…" value="${esc(ui.q)}" oninput="ui.q=this.value;softRenderKeepFocus(this)">`;
   let list = all.filter(s => (ui.gcls === 'all' || s['כיתה'] === ui.gcls) && (!q || fullName(s).includes(q)));
   const by = {}; list.forEach(s => (by[s['כיתה']] = by[s['כיתה']] || []).push(s));
-  h += Object.keys(by).sort(classOrder).map(c => `<div class="grp"><span>${esc(c)}</span><span>${by[c].length}</span></div><div class="card">${by[c].sort(sortName).map(s => `<div class="li"><div class="grow"><div class="nm">${esc(fullName(s))}</div><div class="muted">${busOf(s)?'אוטובוס '+busOf(s):'<span style="color:var(--warn)">לא שובץ לאוטובוס</span>'}${s['הערה']?' · '+esc(s['הערה']):''}</div></div>${s['טלפון_תלמיד']?`<a class="call" href="tel:${esc(s['טלפון_תלמיד'])}">📞</a>`:''}${s['טלפון_הורה']?`<a class="call" href="tel:${esc(s['טלפון_הורה'])}">📞 הורה</a>`:''}</div>`).join('')}</div>`).join('') || '<div class="card muted">לא נמצאו תלמידים</div>';
+  h += Object.keys(by).sort(classOrder).map(c => `<div class="grp"><span>${esc(c)}</span><span>${by[c].length}</span></div><div class="card">${by[c].sort(sortName).map(s => `<div class="li" onclick="studentMenu('${esc(s.id)}')" style="cursor:pointer"><div class="grow"><div class="nm">${esc(fullName(s))}</div><div class="muted">${busOf(s)?'אוטובוס '+busOf(s):'<span style="color:var(--warn)">לא שובץ לאוטובוס</span>'}${s['הערה']?' · '+esc(s['הערה']):''}</div></div>${s['טלפון_תלמיד']?`<a class="call" href="tel:${esc(s['טלפון_תלמיד'])}">📞</a>`:''}${s['טלפון_הורה']?`<a class="call" href="tel:${esc(s['טלפון_הורה'])}">📞 הורה</a>`:''}</div>`).join('')}</div>`).join('') || '<div class="card muted">לא נמצאו תלמידים</div>';
+  const outs = D().students.filter(s => isOut(s) && (ui.gcls === 'all' || s['כיתה'] === ui.gcls) && (!q || fullName(s).includes(q)));
+  if (outs.length) h += `<h3>לא במסע (${outs.length})</h3><div class="card">${outs.sort((a,b)=>classOrder(a['כיתה'],b['כיתה'])||sortName(a,b)).map(s => `<div class="li" onclick="studentMenu('${esc(s.id)}')" style="cursor:pointer;opacity:.75"><div class="grow"><div class="nm">${esc(fullName(s))} <span class="muted">· ${esc(s['כיתה'])}</span></div>${s['הערה']?`<div class="muted">${esc(s['הערה'])}</div>`:''}</div><span class="pill">↩</span></div>`).join('')}</div>`;
+  h += `<div class="muted" style="text-align:center;margin-top:6px">לחיצה על תלמיד: סימון "חזר הביתה" או החזרה לרשימה</div>`;
   return h;
 }
 function latestCount(bus){
