@@ -175,13 +175,13 @@ const save = () => { LS.set('cfg', cfg); LS.set('queue', queue); LS.set('counts'
 async function apiGet(params){
   if (DEMO) return demoGet(params);
   const u = new URL(api());
-  Object.entries({...params, code: cfg.code}).forEach(([k,v]) => u.searchParams.set(k, v));
+  Object.entries({...params, code: ''}).forEach(([k,v]) => u.searchParams.set(k, v));
   const r = await fetch(u, {cache:'no-store'});
   return r.json();
 }
 async function apiPost(ops){
   if (DEMO) return {ok:true, done:ops.map(o=>o.qid)};
-  const r = await fetch(api(), {method:'POST', body: JSON.stringify({code: cfg.code, ops})});
+  const r = await fetch(api(), {method:'POST', body: JSON.stringify({code: '', ops})});
   return r.json();
 }
 function enqueue(op){ op.qid = uid(); op.ts = op.ts || Date.now(); op.by = cfg.name; queue.push(op); save(); flush(); }
@@ -338,7 +338,7 @@ function setSync(){
   const b = document.getElementById('banner');
   if (b){
     const msg = net === 'off' ? `אין חיבור – עובדים מהטלפון${queue.length ? ` · ${queue.length} שינויים ממתינים לשליחה` : ''}` :
-                net === 'err' ? 'קוד הצוות לא תקין – יש להיכנס מחדש בהגדרות' : '';
+                net === 'err' ? 'השרת לא אישר את הבקשה – נסה לרענן' : '';
     b.textContent = msg; b.classList.toggle('hidden', !msg);
   }
 }
@@ -349,7 +349,7 @@ function closeSheet(){ document.getElementById('veil')?.remove(); }
 const TABS = [['now','☀️','עכשיו'],['sched','🗓️','לו"ז'],['count','✓','ספירה'],['class','👥','הכיתה שלי'],['more','☰','עוד']];
 
 function render(){
-  if (!cfg.code || !cfg.myClass || !cfg.name || !data) return renderLogin();
+  if (!cfg.myClass || !cfg.name || !data) return renderLogin();
   const scrollKeep = ui._keep ? window.scrollY : 0;
   $app.innerHTML = `
     <header><span class="sync"></span><h1>${esc(title())}</h1><button class="classchip" onclick="pickClass()">${esc(cfg.myClass)} ▾</button></header>
@@ -641,24 +641,15 @@ function pickClass(){
 
 /* ---------------- login ---------------- */
 function renderLogin(){
-  const step = cfg.code && data ? 2 : 1;
+  const step = data ? 2 : 1;
+  if (step === 1 && !ui._loading){ ui._loading = true; loadAll(true).then(r => { ui._loading = false; if (r === true) renderLogin(); else { const e = document.getElementById('lErr'); if (e) e.textContent = 'אין חיבור לשרת. נסה שוב כשיש קליטה.'; } }); }
   $app.innerHTML = `<div class="login"><div class="logo">🧭</div><h1>מסע ישראלי</h1><div class="muted" style="text-align:center">מעיין שחר · שכבת י"א · 22–26.11</div>
-    ${step===1?`<label>קוד צוות</label><input id="lCode" inputmode="numeric" autocomplete="off" placeholder="••••">
-      <div id="lErr" class="err"></div><div style="height:14px"></div><button class="btn big" id="lGo">כניסה</button>`
+    ${step===1?`<div style="text-align:center;margin-top:30px" class="muted">טוען נתונים…</div><div id="lErr" class="err" style="text-align:center"></div><div style="height:14px"></div><button class="btn sec" id="lGo">נסה שוב</button>`
     :`<label>השם שלך</label><input id="lName" placeholder="למשל: אסף" value="${esc(cfg.name||'')}">
       <label>הכיתה שלך</label><select id="lClass"><option value="">בחירה…</option>${D().classes.map(c => `<option>${esc(c['כיתה'])}</option>`).join('')}</select>
       <div id="lErr" class="err"></div><div style="height:14px"></div><button class="btn big" id="lGo2">המשך</button>`}</div>`;
   if (step === 1){
-    const go1 = async () => {
-      const code = document.getElementById('lCode').value.trim(); if (!code) return;
-      const btn = document.getElementById('lGo'); btn.textContent = 'בודק…';
-      cfg.code = code;
-      const r = await loadAll(true);
-      if (r === true){ save(); renderLogin(); }
-      else { cfg.code = ''; btn.textContent = 'כניסה'; document.getElementById('lErr').textContent = r === 'code' ? 'קוד לא נכון' : 'אין חיבור לשרת. נסה שוב כשיש קליטה.'; }
-    };
-    document.getElementById('lGo').onclick = go1;
-    document.getElementById('lCode').onkeydown = e => { if (e.key === 'Enter') go1(); };
+    document.getElementById('lGo').onclick = () => { ui._loading = false; renderLogin(); };
   } else {
     document.getElementById('lGo2').onclick = () => {
       const n = document.getElementById('lName').value.trim(), c = document.getElementById('lClass').value;
@@ -678,7 +669,7 @@ async function demoGet(p){
 /* ---------------- boot ---------------- */
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
 render();
-if (cfg.code) { loadAll(true).then(()=>{ if (!document.querySelector('header')) render(); }); flush(); }
+if (data) { loadAll(true).then(()=>{ if (!document.querySelector('header')) render(); }); flush(); }
 </script>
 </body>
 </html>
