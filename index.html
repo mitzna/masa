@@ -610,7 +610,13 @@ function scrGrade(){
   const all = D().students.filter(s => !isOut(s));
   const cls = [...new Set(all.map(s => s['כיתה']))].sort(classOrder);
   if (!ui.gcls) ui.gcls = 'all';
-  let h = `<div class="card"><h2 style="margin:0">כל השכבה</h2><div class="muted">${all.length} תלמידים יוצאים · ${cls.length} כיתות</div>
+  const outN = D().students.filter(isOut).length;
+  const busRows = D().buses.map(b => String(b['מספר_אוטובוס'])).sort((x,y)=>x-y).map(n => { const got = busStudents(n).length; const plan = D().classBus.filter(r => String(r['מספר_אוטובוס'])===n).reduce((t,r)=>t+(Number(r['מספר_תלמידים_מתוכנן'])||0),0); return `<span class="pill ${got===plan?'ok':'warn'}">אוטובוס ${n}: ${got}${plan&&got!==plan?` מתוך ${plan}`:''}</span>`; }).join('');
+  const unAll = all.filter(s => !busOf(s)).length;
+  let h = `<div class="card"><div class="row"><div class="grow"><h2 style="margin:0">כל השכבה</h2><div class="muted">${cls.length} כיתות${outN?` · ${outN} לא במסע`:''}</div></div>
+    <div style="text-align:left"><div style="font-size:40px;font-weight:900;line-height:1">${all.length}</div><div class="muted">תלמידים במסע</div></div></div>
+    <div class="muted" style="margin-top:10px;font-weight:700">לפי אוטובוס${unAll?` · ${unAll} עוד לא שובצו`:''}</div><div class="chips">${busRows}</div>
+    <div class="muted" style="margin-top:10px;font-weight:700">לפי כיתה</div>
     <div class="chips">${cls.map(c => { const n = all.filter(s => s['כיתה']===c).length; const un = isSplit(c) ? all.filter(s => s['כיתה']===c && !busOf(s)).length : 0; return `<span class="pill ${un?'warn':''}">${esc(c)}: ${n}${un?` · ${un} בלי אוטובוס`:''}</span>`; }).join('')}</div></div>`;
   h += `<div class="seg"><button class="${ui.gcls==='all'?'on':''}" onclick="ui.gcls='all';render()">הכל</button>${cls.map(c => `<button class="${ui.gcls===c?'on':''}" onclick="ui.gcls='${esc(c)}';render()">${esc(c)}</button>`).join('')}</div>`;
   h += `<input class="search" placeholder="חיפוש שם בכל השכבה…" value="${esc(ui.q)}" oninput="ui.q=this.value;softRenderKeepFocus(this)">`;
